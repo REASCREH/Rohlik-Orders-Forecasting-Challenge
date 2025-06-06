@@ -47,7 +47,7 @@ def load_and_preprocess_model_data():
     #train = pd.read_csv(r'C:\Users\Qamar\Downloads\train (8).csv', index_col='id')
     train=pd.read_csv('train(8)csv')
 
-    test = pd.read_csv(test (2).csv', index_col='id')
+    test = pd.read_csv('test (2).csv', index_col='id')
     data = pd.concat([train, test], axis=0)
     data['holiday_name'] = data['holiday_name'].fillna('None')
 
