@@ -18,7 +18,7 @@ plt.style.use('ggplot')
 def load_and_preprocess_eda_data():
     # Adjusted path for local execution. Replace with your actual path.
     #train_eda = pd.read_csv(r'C:\Users\Qamar\Downloads\train (8).csv', index_col='id')
-    train_eda=pd.read_csv('train(8)csv)
+    train_eda=pd.read_csv('train(8)csv')
     train_eda['date'] = pd.to_datetime(train_eda['date'])
 
     # Dictionary mapping cities to their countries
@@ -45,7 +45,7 @@ def load_and_preprocess_eda_data():
 def load_and_preprocess_model_data():
     # Adjusted paths for local execution. Replace with your actual paths.
     #train = pd.read_csv(r'C:\Users\Qamar\Downloads\train (8).csv', index_col='id')
-    train=pd.read_csv('train(8)csv)
+    train=pd.read_csv('train(8)csv')
 
     test = pd.read_csv(test (2).csv', index_col='id')
     data = pd.concat([train, test], axis=0)
