@@ -308,7 +308,7 @@ sns.barplot(x=avg_orders.index, y=avg_orders.values, palette='magma')
 plt.title('Average Daily Orders by Country')
 st.pyplot(fig6)
 
----
+
 
 ## 2. Model Predictions on Test Data 🔮
 st.write("Using a pre-trained XGBoost model to generate predictions on unseen test data.")
