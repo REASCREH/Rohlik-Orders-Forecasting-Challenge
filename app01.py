@@ -46,7 +46,7 @@ TRAIN_FEATURES = [
 @st.cache_data
 def load_and_preprocess_eda_data():
     train_eda = pd.read_csv(r'train (8).csv', index_col='id')
-    st.subheader("\U0001F4CB Dataset Overview")
+    st.subheader("📊 Dataset Overview")
     col1, col2 = st.columns(2)
     with col1:
         st.write("**First 5 rows:**")
@@ -55,12 +55,12 @@ def load_and_preprocess_eda_data():
         st.write("**Basic Statistics:**")
         st.dataframe(train_eda.describe())
 
-    st.subheader("\U0001F50D Missing Values Analysis")
+    st.subheader("🔍 Missing Values Analysis")
     missing_data = train_eda.isnull().sum().to_frame(name="Missing Values")
     missing_data["Percentage"] = (missing_data["Missing Values"] / len(train_eda)) * 100
     st.dataframe(missing_data.sort_values(by="Percentage", ascending=False))
 
-    st.subheader("\U0001F4C2 Column Information")
+    st.subheader("📄 Column Information")
     col_info = pd.DataFrame({
         'Column': train_eda.columns,
         'Data Type': train_eda.dtypes,
@@ -257,20 +257,22 @@ def load_model():
         return None
 
 st.set_page_config(layout="wide", page_title="Rohlik Orders Forecasting Analysis")
-st.title("Rohlik Orders Forecasting Analysis \U0001F4CA")
+st.title("Rohlik Orders Forecasting Analysis 📈")
 st.write("This application provides comprehensive EDA of the dataset and predictions using a pre-trained XGBoost model.")
 
-st.header("1. Exploratory Data Analysis (EDA) \U0001F50D")
+---
+
+## 1. Exploratory Data Analysis (EDA) 🔍
 train_eda = load_and_preprocess_eda_data()
 
-st.subheader("\U0001F4C8 Time Series Analysis")
+### Time Series Analysis 📊
 fig1 = plt.figure(figsize=(15, 7))
 sns.lineplot(data=train_eda, x='date', y='orders', hue='warehouse', marker='o')
 plt.title('Daily Orders Over Time by Warehouse')
 plt.grid(True)
 st.pyplot(fig1)
 
-st.subheader("\U0001F4CA Distribution Analysis")
+### Distribution Analysis 📈
 col1, col2 = st.columns(2)
 with col1:
     fig2 = plt.figure(figsize=(10, 6))
@@ -284,7 +286,7 @@ with col2:
     plt.xticks(rotation=45)
     st.pyplot(fig3)
 
-st.subheader("\U0001F5D3️ Temporal Patterns")
+### Temporal Patterns 🗓️
 col1, col2 = st.columns(2)
 with col1:
     fig4 = plt.figure(figsize=(10, 6))
@@ -299,14 +301,16 @@ with col2:
     plt.xticks(range(1, 13), ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
     st.pyplot(fig5)
 
-st.subheader("\U0001F30D Geographical Analysis")
+### Geographical Analysis 🌍
 fig6 = plt.figure(figsize=(10, 6))
 avg_orders = train_eda.groupby('country')['orders'].mean().sort_values(ascending=False)
 sns.barplot(x=avg_orders.index, y=avg_orders.values, palette='magma')
 plt.title('Average Daily Orders by Country')
 st.pyplot(fig6)
 
-st.header("2. Model Predictions on Test Data \U0001F52E")
+---
+
+## 2. Model Predictions on Test Data 🔮
 st.write("Using a pre-trained XGBoost model to generate predictions on unseen test data.")
 model = load_model()
 
@@ -348,7 +352,7 @@ if model is not None:
             else: # scikit-learn API wrapper
                 predictions = model.predict(test_data)
 
-            st.subheader("\U0001F4CA Prediction Results")
+            st.subheader("📊 Prediction Results")
             st.write(f"Generated predictions for {len(predictions)} test samples.")
             st.dataframe(pd.Series(predictions).describe().to_frame('Predictions'))
 
@@ -358,15 +362,13 @@ if model is not None:
                 sns.histplot(predictions, kde=True, bins=30, color='purple')
                 plt.title('Distribution of Predicted Orders')
                 st.pyplot(fig7)
-                
             with col2:
                 fig8 = plt.figure(figsize=(10, 6))
                 plt.plot(predictions, 'o', alpha=0.5)
                 plt.title('Predicted Orders Sequence')
                 st.pyplot(fig8)
-                
 
-            st.subheader("\u2728 Feature Importance")
+            st.subheader("✨ Feature Importance")
             if TRAIN_FEATURES: # Check if TRAIN_FEATURES is not empty
                 # For plotting importance, ensure the model has feature names associated
                 if hasattr(model, 'feature_names_in_'): # Scikit-learn API
@@ -374,38 +376,32 @@ if model is not None:
                     plot_importance(model, max_num_features=15)
                     plt.title('Top 15 Important Features')
                     st.pyplot(fig9)
-                    
                 elif isinstance(model, xgb.Booster) and model.feature_names is not None: # Raw Booster
                     fig9 = plt.figure(figsize=(12, 8))
                     plot_importance(model, max_num_features=15, importance_type='weight')
                     plt.title('Top 15 Important Features')
                     st.pyplot(fig9)
-                    
                 else:
                     st.warning("Feature importance plot cannot be generated as feature names are not readily available in the model object.")
             else:
                 st.warning("Feature importance plot cannot be generated as model feature names (TRAIN_FEATURES) were not set.")
 
-            st.subheader("\U0001F333 Example Decision Tree")
+            st.subheader("🌳 Example Decision Tree")
             # --- Uncommented Decision Tree Visualization ---
             if TRAIN_FEATURES and isinstance(model, (xgb.Booster, xgb.XGBRegressor, xgb.XGBClassifier)):
                 try:
-                    # For plot_tree, you might need to adjust figsize significantly for readability
-                    # and often only plot a single tree (num_trees=0 for the first tree)
-                    # or a very small subset of trees for demonstration.
                     st.write("Displaying the first decision tree (might be very large).")
                     fig10 = plt.figure(figsize=(40, 20)) # Increased size for better visibility
                     plot_tree(model, num_trees=0, rankdir='LR', ax=plt.gca()) # Left to Right layout
                     plt.title('First Decision Tree in the Model')
                     st.pyplot(fig10)
-                    [Image of a decision tree visualization]
                 except Exception as e:
                     st.warning(f"Could not plot decision tree: {e}. This can happen for extremely large or complex trees.")
             else:
                 st.warning("Cannot plot decision tree as model or feature names are not available or model type is not supported for tree plotting.")
 
 
-            st.subheader("\U0001F4C2 Download Predictions")
+            st.subheader("📁 Download Predictions")
             # Use original_test_df which contains the original 'id' column
             predictions_df = pd.DataFrame({'id': original_test_df.index, 'predicted_orders': predictions})
             csv = predictions_df.to_csv(index=False).encode('utf-8')
