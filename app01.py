@@ -14,8 +14,34 @@ from urllib.request import urlopen
 
 plt.style.use('ggplot')
 
-MODEL_URL = "https://github.com/your_username/your_repo/raw/main/xgboost_model.joblib" # Replace with your actual model URL
+# IMPORTANT: Replace this with the actual raw URL to your trained model on GitHub
+# Example: "https://raw.githubusercontent.com/your_username/your_repo/main/xgboost_model.joblib"
+MODEL_URL = "https://github.com/mianhamzaashraf/Rohlik-Orders-Forecasting-Challenge/raw/main/xgboost_model.joblib" # Assuming this is your correct URL
 LOCAL_MODEL_PATH = "xgboost_model.joblib"
+
+# --- CRITICAL FIX: MANUALLY DEFINE TRAIN_FEATURES BASED ON YOUR TRAINING NOTEBOOK OUTPUT ---
+# This list MUST exactly match the columns (excluding 'orders') that your model was trained on, in the correct order.
+TRAIN_FEATURES = [
+    'year', 'day', 'month', 'week', 'year_sin', 'year_cos', 'month_sin',
+    'month_cos', 'day_sin', 'day_cos', 'group', 'total_holidays_month',
+    'total_shops_closed_week', 'group_sin', 'group_cos',
+    'holiday_name_tfidf_0', 'holiday_name_tfidf_1', 'holiday_name_tfidf_2',
+    'holiday_name_tfidf_3', 'holiday_name_tfidf_4', 'holiday_name_tfidf_5',
+    'holiday_name_tfidf_6', 'holiday_name_tfidf_7', 'holiday_name_tfidf_8',
+    'holiday_name_tfidf_9', 'holiday_before', 'holiday_after',
+    'warehouse_Brno_1', 'warehouse_Budapest_1', 'warehouse_Frankfurt_1',
+    'warehouse_Munich_1', 'warehouse_Prague_1', 'warehouse_Prague_2',
+    'warehouse_Prague_3', 'holiday_0', 'holiday_1', 'shops_closed_0',
+    'shops_closed_1', 'winter_school_holidays_0', 'winter_school_holidays_1',
+    'school_holidays_0', 'school_holidays_1', 'month_name_April',
+    'month_name_August', 'month_name_December', 'month_name_February',
+    'month_name_January', 'month_name_July', 'month_name_June',
+    'month_name_March', 'month_name_May', 'month_name_November',
+    'month_name_October', 'month_name_September', 'day_of_week_Friday',
+    'day_of_week_Monday', 'day_of_week_Saturday', 'day_of_week_Sunday',
+    'day_of_week_Thursday', 'day_of_week_Tuesday', 'day_of_week_Wednesday',
+    'country_Czech Republic', 'country_Germany', 'country_Hungary'
+]
 
 @st.cache_data
 def load_and_preprocess_eda_data():
@@ -59,43 +85,22 @@ def load_and_preprocess_eda_data():
     train_eda['day_of_week'] = pd.Categorical(train_eda['day_of_week'], categories=day_order, ordered=True)
     return train_eda
 
-# Store the feature names used during training globally or pass them around
-# This list needs to be populated during training and saved with the model,
-# or derived from the training data before the model is saved.
-# For now, I'll assume you can get them from the loaded model's feature_names_in_ attribute.
-# If not, you'll need to reconstruct the training data preprocessing to get the exact columns.
-TRAIN_FEATURES = None # This will be populated after model load if available
-
 @st.cache_data
 def load_and_preprocess_model_data(train_df_path, test_df_path, expected_features=None):
     train = pd.read_csv(train_df_path, index_col='id')
     test = pd.read_csv(test_df_path, index_col='id')
 
-    # It's crucial that the data used for training and testing is processed identically
-    # To achieve this, it's often best to concatenate before processing and then split.
-    # We will only process the columns that are common or derived for both.
-
-    # Identify the target variable
     target_column = 'orders'
-    train_has_target = target_column in train.columns
-    test_has_target = target_column in test.columns
 
-    # Combine for consistent preprocessing
-    if train_has_target and test_has_target: # This scenario is unlikely for typical train/test sets
-        data = pd.concat([train, test], axis=0)
-    elif train_has_target and not test_has_target:
-        # We need to process both train and test to get all possible categorical levels for one-hot encoding
-        # and consistent feature engineering.
-        # Create a placeholder 'orders' column in test if it doesn't exist to allow concatenation.
-        test_temp = test.copy()
-        test_temp[target_column] = np.nan
-        data = pd.concat([train, test_temp], axis=0)
-    elif not train_has_target and not test_has_target: # E.g., if you're loading a preprocessed test set
-        data = test.copy()
-    else: # If test has target but train doesn't (unlikely)
-        raise ValueError("Invalid train/test target column configuration.")
+    # Combine for consistent preprocessing, preserving original indices
+    # We will use the full `train` and `test` data here initially to ensure all
+    # original columns are available for mapping/feature creation.
+    data = pd.concat([train.drop(columns=[target_column]) if target_column in train.columns else train, test], axis=0)
 
+    # Fill NaNs for 'holiday_name' early
     data['holiday_name'] = data['holiday_name'].fillna('None')
+
+    # Map warehouse to country
     city_to_country = {
         'Munich_1': 'Germany',
         'Frankfurt_1': 'Germany',
@@ -125,58 +130,53 @@ def load_and_preprocess_model_data(train_df_path, test_df_path, expected_feature
         Df['quarter_sin'] = np.sin(2 * np.pi * Df['quarter'] / 4)
         Df['quarter_cos'] = np.cos(2 * np.pi * Df['quarter'] / 4)
 
-        # Handle 'group' and related sin/cos transformations carefully for potential new values in test set
         min_year = Df['year'].min()
         Df['group'] = (Df['year'] - min_year) * 48 + Df['month'] * 4 + Df['day'] // 7
         max_group = Df['group'].max()
-        if max_group > 0: # Ensure division by zero is avoided if all group values are 0
+        if max_group > 0:
             Df['group_sin'] = np.sin(2 * np.pi * Df['group'] / max_group)
             Df['group_cos'] = np.cos(2 * np.pi * Df['group'] / max_group)
         else:
             Df['group_sin'] = 0
             Df['group_cos'] = 0
 
-        # These transformations rely on groupby, which should be consistent across train and test
-        Df['total_holidays_month'] = Df.groupby(['year', 'month'])['holiday'].transform('sum')
-        Df['total_shops_closed_week'] = Df.groupby(['year', 'week'])['shops_closed'].transform('sum')
+        # Ensure 'holiday' and 'shops_closed' exist before groupby transforms
+        if 'holiday' in Df.columns:
+            Df['total_holidays_month'] = Df.groupby(['year', 'month'])['holiday'].transform('sum')
+        else:
+            Df['total_holidays_month'] = 0 # Default if 'holiday' not available
+
+        if 'shops_closed' in Df.columns:
+            Df['total_shops_closed_week'] = Df.groupby(['year', 'week'])['shops_closed'].transform('sum')
+        else:
+            Df['total_shops_closed_week'] = 0 # Default if 'shops_closed' not available
+
+        # **IMPORTANT**: Remove or comment out features that were NOT in your training data
+        # Based on your error message, these were not in your training features:
+        # 'precipitation', 'snow', 'user_activity_1', 'user_activity_2',
+        # 'mov_change', 'shutdown', 'blackout', 'mini_shutdown', 'frankfurt_shutdown'
+        # If these columns *were* in your raw `train (8).csv` but your model was trained
+        # *after dropping them*, then ensure they are dropped here as well.
+        # Given your `train.head` output, they are not present in your final training features.
+        # So, we should ensure they are not carried forward into the processed data if they somehow appear.
+        cols_to_drop_if_present = [
+            'precipitation', 'snow', 'user_activity_1', 'user_activity_2',
+            'mov_change', 'shutdown', 'blackout', 'mini_shutdown', 'frankfurt_shutdown'
+        ]
+        for col in cols_to_drop_if_present:
+            if col in Df.columns:
+                Df = Df.drop(columns=[col])
+
         return Df
 
     data = Process_Date(data)
 
-    # Ensure all required columns for training are present in the final dataset.
-    # The `required_cols` list should reflect all features used in your *trained* model.
-    required_cols_base = ['warehouse', 'holiday_name', 'holiday', 'shops_closed',
-                          'winter_school_holidays', 'school_holidays', 'year', 'day', 'month',
-                          'month_name', 'day_of_week', 'week', 'year_sin', 'year_cos',
-                          'month_sin', 'month_cos', 'day_sin', 'day_cos', 'group',
-                          'total_holidays_month', 'total_shops_closed_week', 'group_sin',
-                          'group_cos', 'country', 'precipitation', 'snow', 'user_activity_1',
-                          'user_activity_2', 'mov_change', 'shutdown', 'blackout', 'mini_shutdown',
-                          'frankfurt_shutdown']
-
-    # Add 'orders' only if it exists in the original data or is a placeholder
-    if target_column in data.columns:
-        required_cols_base.append(target_column)
-
-    data = data[list(set(required_cols_base).intersection(data.columns))]
-
-    def apply_tfidf_svd(df, text_column, max_features=1000, n_components=10, fitted_vectorizer=None, fitted_svd=None):
-        df[text_column] = df[text_column].fillna('')
-
-        # For consistent TF-IDF and SVD, you should fit on training data and transform on test data.
-        # If you're combining train/test before, fit_transform on the combined.
-        # For prediction, it's better to load pre-fitted objects.
-        if fitted_vectorizer and fitted_svd:
-            vectors = fitted_vectorizer.transform(df[text_column])
-            x_sv = fitted_svd.transform(vectors)
-        else:
-            # This path is for initial data prep. For prediction, it's not ideal unless
-            # the combined data ensures all training-time vocabulary is present.
-            vectorizer = TfidfVectorizer(max_features=max_features, stop_words='english')
-            vectors = vectorizer.fit_transform(df[text_column])
-            svd = TruncatedSVD(n_components)
-            x_sv = svd.fit_transform(vectors)
-
+    def apply_tfidf_svd(df, text_column, max_features=1000, n_components=10):
+        vectorizer = TfidfVectorizer(max_features=max_features, stop_words='english')
+        # Fit on combined data to ensure all vocabulary is learned
+        vectors = vectorizer.fit_transform(df[text_column])
+        svd = TruncatedSVD(n_components)
+        x_sv = svd.fit_transform(vectors)
         tfidf_df = pd.DataFrame(x_sv)
         cols = [(text_column + "_tfidf_" + str(f)) for f in tfidf_df.columns.to_list()]
         tfidf_df.columns = cols
@@ -184,16 +184,11 @@ def load_and_preprocess_model_data(train_df_path, test_df_path, expected_feature
         df = pd.concat([df, tfidf_df], axis="columns")
         return df
 
-    data = apply_tfidf_svd(data, 'holiday_name') # No pre-fitted vectorizer/svd here, assumes combined data handles this
+    data = apply_tfidf_svd(data, 'holiday_name')
     data = data.drop(columns=['holiday_name'])
     if 'date' in data.columns:
         data = data.drop(columns=['date'])
 
-    # Shift operations: Be careful. If you're processing train and test separately
-    # (which you seem to be doing by concatenating then splitting based on 'orders' nullity),
-    # then these shifts will not be consistent at the train/test split boundary.
-    # Ideally, perform these shifts *after* processing train/test separately if the boundary is important.
-    # For now, keeping as is, assuming a single continuous time series processing.
     data['holiday_before'] = data['holiday'].shift(1).fillna(0).astype(int)
     data['holiday_after'] = data['holiday'].shift(-1).fillna(0).astype(int)
 
@@ -202,37 +197,33 @@ def load_and_preprocess_model_data(train_df_path, test_df_path, expected_feature
         if col in data.columns:
             data[col] = data[col].astype('category')
 
-    # Perform one-hot encoding
-    # Crucially, ensure the categories for one-hot encoding are consistent with training.
-    # A robust way is to fit the OneHotEncoder on the combined (train+test) categorical data
-    # or save the encoder from training and load it.
-    # For simplicity, pd.get_dummies will generate columns based on categories present in `data`.
-    # This might lead to missing columns if a category present in training is not in test, and vice versa.
-    # You MUST ensure consistent columns after this step.
+    # One-hot encode the categorical columns
     data = pd.get_dummies(data)
 
-    test_processed = data[data[target_column].isnull()]
-    test_processed = test_processed.drop(columns=[target_column])
+    # Now, split the combined and processed data back into train and test parts
+    test_processed = data.loc[test.index].copy()
 
-    # Now, explicitly align columns with the expected features from the model
+    # If `expected_features` are provided (which they should be from TRAIN_FEATURES),
+    # then strictly align the test data to those features.
     if expected_features is not None:
-        # Add missing columns (fill with 0, or appropriate default)
-        missing_in_test = set(expected_features) - set(test_processed.columns)
-        for col in missing_in_test:
-            test_processed[col] = 0
+        # Create a new DataFrame with all expected features, initialized to 0
+        aligned_test_data = pd.DataFrame(0, index=test_processed.index, columns=expected_features)
 
-        # Drop extra columns
-        extra_in_test = set(test_processed.columns) - set(expected_features)
-        test_processed = test_processed.drop(columns=list(extra_in_test))
+        # Copy values for features that exist in the processed test data
+        common_cols = list(set(test_processed.columns) & set(expected_features))
+        aligned_test_data[common_cols] = test_processed[common_cols]
 
-        # Ensure order is consistent
-        test_processed = test_processed[expected_features]
+        # Ensure the order is exactly as expected
+        aligned_test_data = aligned_test_data[expected_features]
+        return aligned_test_data
+    else:
+        st.error("Error: Expected features list (TRAIN_FEATURES) was not provided to preprocessing. Cannot ensure alignment.")
+        return None # Return None or raise an error to prevent further issues
 
-    return test_processed
 
 @st.cache_resource
 def load_model():
-    global TRAIN_FEATURES
+    global TRAIN_FEATURES # This global variable will be set manually based on your training data
     if not os.path.exists(LOCAL_MODEL_PATH):
         st.info(f"Downloading model from {MODEL_URL}...")
         try:
@@ -240,20 +231,26 @@ def load_model():
                 out_file.write(response.read())
             st.success("Model downloaded successfully!")
         except Exception as e:
-            st.error(f"Error downloading model: {str(e)}. Please check the MODEL_URL.")
+            st.error(f"Error downloading model: {str(e)}. Please ensure the MODEL_URL is correct and accessible.")
             return None
     try:
         model = joblib.load(LOCAL_MODEL_PATH)
         st.success("Model loaded successfully!")
-        # Store feature names if available in the model
-        if hasattr(model, 'feature_names_in_'):
-            TRAIN_FEATURES = model.feature_names_in_.tolist()
-        elif hasattr(model, 'get_booster'): # For raw XGBoost Booster objects
-            TRAIN_FEATURES = model.get_booster().feature_names
+        # The TRAIN_FEATURES are now manually set, so we don't need to try retrieving them from the model
+        # However, for debugging, you might still want to check if the model's internal features match TRAIN_FEATURES
+        if hasattr(model, 'feature_names_in_') and model.feature_names_in_ is not None:
+            if set(model.feature_names_in_) != set(TRAIN_FEATURES):
+                st.warning("Model's internal feature names differ from the manually defined TRAIN_FEATURES. This is critical!")
+                st.write("Model features (first 5):", model.feature_names_in_[:5].tolist())
+                st.write("TRAIN_FEATURES (first 5):", TRAIN_FEATURES[:5])
+        elif hasattr(model, 'get_booster') and model.get_booster().feature_names is not None:
+            if set(model.get_booster().feature_names) != set(TRAIN_FEATURES):
+                 st.warning("Model (Booster)'s internal feature names differ from the manually defined TRAIN_FEATURES. This is critical!")
+                 st.write("Model Booster features (first 5):", model.get_booster().feature_names[:5])
+                 st.write("TRAIN_FEATURES (first 5):", TRAIN_FEATURES[:5])
         else:
-            st.warning("Could not automatically retrieve feature names from the loaded model. Ensure your preprocessing aligns.")
-            # If feature names cannot be retrieved, you'll need to manually define them
-            # based on your training data's final column set.
+            st.info("Model feature names not directly accessible for comparison, relying on manual TRAIN_FEATURES definition.")
+
         return model
     except Exception as e:
         st.error(f"Error loading model: {str(e)}")
@@ -315,69 +312,85 @@ model = load_model()
 
 if model is not None:
     with st.spinner('Preparing test data for predictions...'):
-        # Pass the original train and test paths, and the expected features from the model
+        # Pass the original train and test paths, and the expected features from TRAIN_FEATURES
+        # It's crucial that TRAIN_FEATURES is correctly defined at the top of the script
         test_data = load_and_preprocess_model_data(r'train (8).csv', r'test (2).csv', expected_features=TRAIN_FEATURES)
 
+    if test_data is not None and (len(test_data.columns) != len(TRAIN_FEATURES) or any(test_data.columns != pd.Index(TRAIN_FEATURES))):
+        st.warning("Warning: The preprocessed test data columns still do not exactly match the model's expected features after alignment. This is critical!")
+        st.write("Test Data Columns (first 5):", test_data.columns.tolist()[:5])
+        st.write("Model Expected Features (first 5):", TRAIN_FEATURES[:5])
+        missing_in_test = set(TRAIN_FEATURES) - set(test_data.columns)
+        extra_in_test = set(test_data.columns) - set(TRAIN_FEATURES)
+        if missing_in_test:
+            st.error(f"Missing in test data: {missing_in_test}")
+        if extra_in_test:
+            st.error(f"Extra in test data: {extra_in_test}")
+        if not missing_in_test and not extra_in_test:
+            st.warning("Columns match, but order is different. This can still cause issues.")
+            st.write("Test Data Columns:", test_data.columns.tolist())
+            st.write("Model Expected Features:", TRAIN_FEATURES)
+
+
     try:
-        if isinstance(model, xgb.Booster): # Raw XGBoost Booster
-            dmatrix = xgb.DMatrix(test_data)
-            predictions = model.predict(dmatrix)
-        else: # scikit-learn API wrapper
-            predictions = model.predict(test_data)
-
-        st.subheader("\U0001F4CA Prediction Results")
-        st.write(f"Generated predictions for {len(predictions)} test samples.")
-        st.dataframe(pd.Series(predictions).describe().to_frame('Predictions'))
-
-        col1, col2 = st.columns(2)
-        with col1:
-            fig7 = plt.figure(figsize=(10, 6))
-            sns.histplot(predictions, kde=True, bins=30, color='purple')
-            plt.title('Distribution of Predicted Orders')
-            st.pyplot(fig7)
-        with col2:
-            fig8 = plt.figure(figsize=(10, 6))
-            plt.plot(predictions, 'o', alpha=0.5)
-            plt.title('Predicted Orders Sequence')
-            st.pyplot(fig8)
-
-        st.subheader("\u2728 Feature Importance")
-        # Ensure plot_importance can access feature names correctly
-        if hasattr(model, 'feature_names_in_'):
-            fig9 = plt.figure(figsize=(12, 8))
-            plot_importance(model, max_num_features=15)
-            plt.title('Top 15 Important Features')
-            st.pyplot(fig9)
-        elif isinstance(model, xgb.Booster) and model.feature_names is not None:
-            # For raw Booster, feature_names should be set or pass feature_names to plot_importance
-            fig9 = plt.figure(figsize=(12, 8))
-            plot_importance(model, max_num_features=15, importance_type='weight') # You might need to specify importance_type
-            plt.title('Top 15 Important Features')
-            st.pyplot(fig9)
+        if test_data is None: # Handle case where preprocessing failed
+            st.error("Preprocessing of test data failed. Cannot make predictions.")
         else:
-            st.warning("Feature importance plot cannot be generated as feature names are not available in the model.")
+            if isinstance(model, xgb.Booster): # Raw XGBoost Booster
+                dmatrix = xgb.DMatrix(test_data)
+                predictions = model.predict(dmatrix)
+            else: # scikit-learn API wrapper
+                predictions = model.predict(test_data)
 
+            st.subheader("\U0001F4CA Prediction Results")
+            st.write(f"Generated predictions for {len(predictions)} test samples.")
+            st.dataframe(pd.Series(predictions).describe().to_frame('Predictions'))
 
-        st.subheader("\U0001F333 Example Decision Tree")
-        # Plotting a single tree might be very large, consider only for small trees or specific cases
-        # fig10 = plt.figure(figsize=(20, 10))
-        # plot_tree(model, num_trees=0)
-        # plt.title('First Tree in the Model')
-        # st.pyplot(fig10)
-        st.info("Decision tree visualization is currently commented out due to potential large size/complexity. Uncomment if needed.")
+            col1, col2 = st.columns(2)
+            with col1:
+                fig7 = plt.figure(figsize=(10, 6))
+                sns.histplot(predictions, kde=True, bins=30, color='purple')
+                plt.title('Distribution of Predicted Orders')
+                st.pyplot(fig7)
+            with col2:
+                fig8 = plt.figure(figsize=(10, 6))
+                plt.plot(predictions, 'o', alpha=0.5)
+                plt.title('Predicted Orders Sequence')
+                st.pyplot(fig8)
 
-        st.subheader("\U0001F4C2 Download Predictions")
-        predictions_df = pd.DataFrame({'id': test_data.index, 'predicted_orders': predictions})
-        csv = predictions_df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="Download predictions as CSV",
-            data=csv,
-            file_name='rohlik_order_predictions.csv',
-            mime='text/csv'
-        )
+            st.subheader("\u2728 Feature Importance")
+            if TRAIN_FEATURES: # Check if TRAIN_FEATURES is not empty
+                # For plotting importance, ensure the model has feature names associated
+                if hasattr(model, 'feature_names_in_'): # Scikit-learn API
+                    fig9 = plt.figure(figsize=(12, 8))
+                    plot_importance(model, max_num_features=15)
+                    plt.title('Top 15 Important Features')
+                    st.pyplot(fig9)
+                elif isinstance(model, xgb.Booster) and model.feature_names is not None: # Raw Booster
+                    fig9 = plt.figure(figsize=(12, 8))
+                    plot_importance(model, max_num_features=15, importance_type='weight')
+                    plt.title('Top 15 Important Features')
+                    st.pyplot(fig9)
+                else:
+                    st.warning("Feature importance plot cannot be generated as feature names are not readily available in the model object.")
+            else:
+                st.warning("Feature importance plot cannot be generated as model feature names (TRAIN_FEATURES) were not set.")
+
+            st.subheader("\U0001F333 Example Decision Tree")
+            st.info("Decision tree visualization is currently commented out due to potential large size/complexity. Uncomment if needed.")
+
+            st.subheader("\U0001F4C2 Download Predictions")
+            predictions_df = pd.DataFrame({'id': test.index, 'predicted_orders': predictions}) # Use original test index
+            csv = predictions_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download predictions as CSV",
+                data=csv,
+                file_name='rohlik_order_predictions.csv',
+                mime='text/csv'
+            )
 
     except Exception as e:
         st.error(f"An error occurred during prediction: {str(e)}")
-        st.info("Please ensure that the columns of your preprocessed test data exactly match the features the model was trained on.")
+        st.info("Please ensure that the columns of your preprocessed test data exactly match the features the model was trained on. Check the console for full error details.")
 
 st.success("Analysis complete!")
