@@ -152,13 +152,6 @@ def load_and_preprocess_model_data(train_df_path, test_df_path, expected_feature
             Df['total_shops_closed_week'] = 0 # Default if 'shops_closed' not available
 
         # **IMPORTANT**: Remove or comment out features that were NOT in your training data
-        # Based on your error message, these were not in your training features:
-        # 'precipitation', 'snow', 'user_activity_1', 'user_activity_2',
-        # 'mov_change', 'shutdown', 'blackout', 'mini_shutdown', 'frankfurt_shutdown'
-        # If these columns *were* in your raw `train (8).csv` but your model was trained
-        # *after dropping them*, then ensure they are dropped here as well.
-        # Given your `train.head` output, they are not present in your final training features.
-        # So, we should ensure they are not carried forward into the processed data if they somehow appear.
         cols_to_drop_if_present = [
             'precipitation', 'snow', 'user_activity_1', 'user_activity_2',
             'mov_change', 'shutdown', 'blackout', 'mini_shutdown', 'frankfurt_shutdown'
@@ -188,6 +181,13 @@ def load_and_preprocess_model_data(train_df_path, test_df_path, expected_feature
     data = data.drop(columns=['holiday_name'])
     if 'date' in data.columns:
         data = data.drop(columns=['date'])
+    if 'quarter' in data.columns: # Quarter column was created but not in your TRAIN_FEATURES
+        data = data.drop(columns=['quarter'])
+    if 'quarter_sin' in data.columns: # Quarter cyclic features also not in TRAIN_FEATURES
+        data = data.drop(columns=['quarter_sin'])
+    if 'quarter_cos' in data.columns:
+        data = data.drop(columns=['quarter_cos'])
+
 
     data['holiday_before'] = data['holiday'].shift(1).fillna(0).astype(int)
     data['holiday_after'] = data['holiday'].shift(-1).fillna(0).astype(int)
@@ -215,10 +215,10 @@ def load_and_preprocess_model_data(train_df_path, test_df_path, expected_feature
 
         # Ensure the order is exactly as expected
         aligned_test_data = aligned_test_data[expected_features]
-        return aligned_test_data
+        return aligned_test_data, test # Return both processed test data and original test for its index
     else:
         st.error("Error: Expected features list (TRAIN_FEATURES) was not provided to preprocessing. Cannot ensure alignment.")
-        return None # Return None or raise an error to prevent further issues
+        return None, test # Return None for processed data, but original test to avoid error in main script
 
 
 @st.cache_resource
@@ -311,31 +311,37 @@ st.write("Using a pre-trained XGBoost model to generate predictions on unseen te
 model = load_model()
 
 if model is not None:
+    # Crucial step: Pass TRAIN_FEATURES to ensure test data aligns
     with st.spinner('Preparing test data for predictions...'):
-        # Pass the original train and test paths, and the expected features from TRAIN_FEATURES
-        # It's crucial that TRAIN_FEATURES is correctly defined at the top of the script
-        test_data = load_and_preprocess_model_data(r'train (8).csv', r'test (2).csv', expected_features=TRAIN_FEATURES)
+        # Now, load_and_preprocess_model_data returns both processed test_data and original test
+        test_data, original_test_df = load_and_preprocess_model_data(r'train (8).csv', r'test (2).csv', expected_features=TRAIN_FEATURES)
 
-    if test_data is not None and (len(test_data.columns) != len(TRAIN_FEATURES) or any(test_data.columns != pd.Index(TRAIN_FEATURES))):
-        st.warning("Warning: The preprocessed test data columns still do not exactly match the model's expected features after alignment. This is critical!")
-        st.write("Test Data Columns (first 5):", test_data.columns.tolist()[:5])
-        st.write("Model Expected Features (first 5):", TRAIN_FEATURES[:5])
-        missing_in_test = set(TRAIN_FEATURES) - set(test_data.columns)
-        extra_in_test = set(test_data.columns) - set(TRAIN_FEATURES)
-        if missing_in_test:
-            st.error(f"Missing in test data: {missing_in_test}")
-        if extra_in_test:
-            st.error(f"Extra in test data: {extra_in_test}")
-        if not missing_in_test and not extra_in_test:
-            st.warning("Columns match, but order is different. This can still cause issues.")
-            st.write("Test Data Columns:", test_data.columns.tolist())
-            st.write("Model Expected Features:", TRAIN_FEATURES)
+    if test_data is not None:
+        # --- Debugging Feature Alignment ---
+        st.write("--- Debugging Feature Alignment ---")
+        st.write(f"Number of features in preprocessed test data: {len(test_data.columns)}")
+        st.write(f"Number of features expected by model (TRAIN_FEATURES): {len(TRAIN_FEATURES)}")
 
-
-    try:
-        if test_data is None: # Handle case where preprocessing failed
-            st.error("Preprocessing of test data failed. Cannot make predictions.")
+        # Check if column sets are identical
+        if set(test_data.columns) == set(TRAIN_FEATURES):
+            st.write("Column sets are identical.")
         else:
+            st.error("Column sets are NOT identical!")
+            missing_in_test = set(TRAIN_FEATURES) - set(test_data.columns)
+            extra_in_test = set(test_data.columns) - set(TRAIN_FEATURES)
+            if missing_in_test:
+                st.error(f"Features expected by model but missing in test data: {list(missing_in_test)}")
+            if extra_in_test:
+                st.error(f"Features in test data but not expected by model: {list(extra_in_test)}")
+
+        # Check if column order is identical
+        if list(test_data.columns) == TRAIN_FEATURES:
+            st.write("Column order is identical.")
+        else:
+            st.error("Column order is NOT identical!")
+        st.write("--- End Debugging ---")
+
+        try:
             if isinstance(model, xgb.Booster): # Raw XGBoost Booster
                 dmatrix = xgb.DMatrix(test_data)
                 predictions = model.predict(dmatrix)
@@ -352,11 +358,13 @@ if model is not None:
                 sns.histplot(predictions, kde=True, bins=30, color='purple')
                 plt.title('Distribution of Predicted Orders')
                 st.pyplot(fig7)
+                
             with col2:
                 fig8 = plt.figure(figsize=(10, 6))
                 plt.plot(predictions, 'o', alpha=0.5)
                 plt.title('Predicted Orders Sequence')
                 st.pyplot(fig8)
+                
 
             st.subheader("\u2728 Feature Importance")
             if TRAIN_FEATURES: # Check if TRAIN_FEATURES is not empty
@@ -366,21 +374,40 @@ if model is not None:
                     plot_importance(model, max_num_features=15)
                     plt.title('Top 15 Important Features')
                     st.pyplot(fig9)
+                    
                 elif isinstance(model, xgb.Booster) and model.feature_names is not None: # Raw Booster
                     fig9 = plt.figure(figsize=(12, 8))
                     plot_importance(model, max_num_features=15, importance_type='weight')
                     plt.title('Top 15 Important Features')
                     st.pyplot(fig9)
+                    
                 else:
                     st.warning("Feature importance plot cannot be generated as feature names are not readily available in the model object.")
             else:
                 st.warning("Feature importance plot cannot be generated as model feature names (TRAIN_FEATURES) were not set.")
 
             st.subheader("\U0001F333 Example Decision Tree")
-            st.info("Decision tree visualization is currently commented out due to potential large size/complexity. Uncomment if needed.")
+            # --- Uncommented Decision Tree Visualization ---
+            if TRAIN_FEATURES and isinstance(model, (xgb.Booster, xgb.XGBRegressor, xgb.XGBClassifier)):
+                try:
+                    # For plot_tree, you might need to adjust figsize significantly for readability
+                    # and often only plot a single tree (num_trees=0 for the first tree)
+                    # or a very small subset of trees for demonstration.
+                    st.write("Displaying the first decision tree (might be very large).")
+                    fig10 = plt.figure(figsize=(40, 20)) # Increased size for better visibility
+                    plot_tree(model, num_trees=0, rankdir='LR', ax=plt.gca()) # Left to Right layout
+                    plt.title('First Decision Tree in the Model')
+                    st.pyplot(fig10)
+                    [Image of a decision tree visualization]
+                except Exception as e:
+                    st.warning(f"Could not plot decision tree: {e}. This can happen for extremely large or complex trees.")
+            else:
+                st.warning("Cannot plot decision tree as model or feature names are not available or model type is not supported for tree plotting.")
+
 
             st.subheader("\U0001F4C2 Download Predictions")
-            predictions_df = pd.DataFrame({'id': test.index, 'predicted_orders': predictions}) # Use original test index
+            # Use original_test_df which contains the original 'id' column
+            predictions_df = pd.DataFrame({'id': original_test_df.index, 'predicted_orders': predictions})
             csv = predictions_df.to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="Download predictions as CSV",
@@ -389,8 +416,10 @@ if model is not None:
                 mime='text/csv'
             )
 
-    except Exception as e:
-        st.error(f"An error occurred during prediction: {str(e)}")
-        st.info("Please ensure that the columns of your preprocessed test data exactly match the features the model was trained on. Check the console for full error details.")
+        except Exception as e:
+            st.error(f"An error occurred during prediction: {str(e)}")
+            st.info("Please ensure that the columns of your preprocessed test data exactly match the features the model was trained on. Check the console for full error details.")
+    else:
+        st.error("Test data preprocessing failed. No predictions can be made.")
 
 st.success("Analysis complete!")
