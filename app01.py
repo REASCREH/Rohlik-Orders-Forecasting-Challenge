@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-#import xgboost as xgb
+import xgboost as xgb
 from sklearn.metrics import mean_absolute_percentage_error, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -14,9 +14,10 @@ from urllib.request import urlopen
 
 plt.style.use('ggplot')
 
-# IMPORTANT: Replace this with the actual raw URL to your trained model on GitHub
-MODEL_URL = "xgboost_model.joblib"
-LOCAL_MODEL_PATH = "xgboost_model.joblib"
+# Update these paths to your local files
+TRAIN_DATA_PATH = "train (8).csv"
+TEST_DATA_PATH = "test (2).csv"
+MODEL_PATH = "xgboost_model.joblib"
 
 # Manually defined TRAIN_FEATURES based on training notebook output
 TRAIN_FEATURES = [
@@ -43,7 +44,7 @@ TRAIN_FEATURES = [
 
 @st.cache_data
 def load_and_preprocess_eda_data():
-    train_eda = pd.read_csv('train (8).csv', index_col='id')
+    train_eda = pd.read_csv(TRAIN_DATA_PATH, index_col='id')
     st.subheader("📊 Dataset Overview")
     col1, col2 = st.columns(2)
     with col1:
@@ -207,17 +208,8 @@ def load_and_preprocess_model_data(train_df_path, test_df_path, expected_feature
 
 @st.cache_resource
 def load_model():
-    if not os.path.exists(LOCAL_MODEL_PATH):
-        st.info(f"Downloading model from {MODEL_URL}...")
-        try:
-            with urlopen(MODEL_URL) as response, open(LOCAL_MODEL_PATH, 'wb') as out_file:
-                out_file.write(response.read())
-            st.success("Model downloaded successfully!")
-        except Exception as e:
-            st.error(f"Error downloading model: {str(e)}")
-            return None
     try:
-        model = joblib.load(LOCAL_MODEL_PATH)
+        model = joblib.load(MODEL_PATH)
         st.success("Model loaded successfully!")
         
         if hasattr(model, 'feature_names_in_') and model.feature_names_in_ is not None:
@@ -540,7 +532,7 @@ model = load_model()
 
 if model is not None:
     with st.spinner('Preparing test data for predictions...'):
-        test_data, original_test_df = load_and_preprocess_model_data('train (8).csv', 'test (2).csv', expected_features=TRAIN_FEATURES)
+        test_data, original_test_df = load_and_preprocess_model_data(TRAIN_DATA_PATH, TEST_DATA_PATH, expected_features=TRAIN_FEATURES)
 
     if test_data is not None:
         st.subheader("Feature Alignment Check")
