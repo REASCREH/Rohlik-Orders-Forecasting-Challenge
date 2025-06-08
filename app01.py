@@ -15,7 +15,7 @@ from urllib.request import urlopen
 plt.style.use('ggplot')
 
 # IMPORTANT: Replace this with the actual raw URL to your trained model on GitHub
-MODEL_URL = "https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/raw/refs/heads/main/xgboost_model.joblib"
+MODEL_URL = "xgboost_model.joblib"
 LOCAL_MODEL_PATH = "xgboost_model.joblib"
 
 # Manually defined TRAIN_FEATURES based on training notebook output
