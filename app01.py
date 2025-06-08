@@ -4,6 +4,7 @@ import xgboost as xgb
 from sklearn.metrics import mean_absolute_percentage_error, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
+from xgboost import plot_importance, plot_tree
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
 import streamlit as st
@@ -13,11 +14,10 @@ from urllib.request import urlopen
 
 plt.style.use('ggplot')
 
-# IMPORTANT: Replace this with the actual raw URL to your trained model on GitHub
-# Example: If your model is in a GitHub repo at user/repo/blob/main/xgboost_model.joblib,
-# the raw URL would be https://raw.githubusercontent.com/user/repo/main/xgboost_model.joblib
-MODEL_URL = "xgboost_model.joblib" # <--- IMPORTANT: Replace with your actual raw GitHub URL!
-LOCAL_MODEL_PATH = "xgboost_model.joblib"  # Local filename
+# Update these paths to your local files
+TRAIN_DATA_PATH = "train (8).csv"
+TEST_DATA_PATH = "test (2).csv"
+MODEL_PATH = "xgboost_model.joblib"
 
 # Manually defined TRAIN_FEATURES based on training notebook output
 TRAIN_FEATURES = [
@@ -43,8 +43,29 @@ TRAIN_FEATURES = [
 ]
 
 @st.cache_data
-def load_and_preprocess_eda_data(train_df_path='train (8).csv'):
-    train_eda = pd.read_csv(train_df_path, index_col='id')
+def load_and_preprocess_eda_data():
+    train_eda = pd.read_csv(TRAIN_DATA_PATH, index_col='id')
+    st.subheader("📊 Dataset Overview")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("**First 5 rows:**")
+        st.dataframe(train_eda.head())
+    with col2:
+        st.write("**Basic Statistics:**")
+        st.dataframe(train_eda.describe())
+
+    st.subheader("🔍 Missing Values Analysis")
+    missing_data = train_eda.isnull().sum().to_frame(name="Missing Values")
+    missing_data["Percentage"] = (missing_data["Missing Values"] / len(train_eda)) * 100
+    st.dataframe(missing_data.sort_values(by="Percentage", ascending=False))
+
+    st.subheader("📄 Column Information")
+    col_info = pd.DataFrame({
+        'Column': train_eda.columns,
+        'Data Type': train_eda.dtypes,
+        'Unique Values': [train_eda[col].nunique() for col in train_eda.columns]
+    })
+    st.dataframe(col_info)
 
     train_eda['date'] = pd.to_datetime(train_eda['date'])
     city_to_country = {
@@ -182,24 +203,15 @@ def load_and_preprocess_model_data(train_df_path, test_df_path, expected_feature
         aligned_test_data = aligned_test_data[expected_features]
         return aligned_test_data, test
     else:
-        # This block will not be reached in your current usage as expected_features is always provided
+        st.error("Error: Expected features list (TRAIN_FEATURES) was not provided to preprocessing.")
         return None, test
 
 @st.cache_resource
-def load_model_from_url():
-    if not os.path.exists(LOCAL_MODEL_PATH):
-        st.info(f"Downloading model from {MODEL_URL}...")
-        try:
-            with urlopen(MODEL_URL) as response, open(LOCAL_MODEL_PATH, 'wb') as out_file:
-                out_file.write(response.read())
-            st.success("Model downloaded successfully!")
-        except Exception as e:
-            st.error(f"Error downloading model: {str(e)}")
-            return None
+def load_model():
     try:
-        model = joblib.load(LOCAL_MODEL_PATH)
+        model = joblib.load(MODEL_PATH)
         st.success("Model loaded successfully!")
-
+        
         if hasattr(model, 'feature_names_in_') and model.feature_names_in_ is not None:
             if set(model.feature_names_in_) != set(TRAIN_FEATURES):
                 st.warning("Model's internal feature names differ from TRAIN_FEATURES!")
@@ -214,400 +226,369 @@ def load_model_from_url():
         st.error(f"Error loading model: {str(e)}")
         return None
 
-# Main Streamlit application function
-def main():
-    st.set_page_config(layout="wide", page_title="Rohlik Orders Forecasting Analysis")
-    st.title("Rohlik Orders Forecasting Analysis 📈")
-    st.write("This application provides comprehensive EDA of the dataset and predictions using a pre-trained XGBoost model.")
+# Main Streamlit app
+st.set_page_config(layout="wide", page_title="Rohlik Orders Forecasting Analysis")
+st.title("Rohlik Orders Forecasting Analysis 📈")
+st.write("This application provides comprehensive EDA of the dataset and predictions using a pre-trained XGBoost model.")
 
-    # Section 1: Exploratory Data Analysis (EDA)
-    st.header("1. Exploratory Data Analysis (EDA) 🔍")
-    train_eda = load_and_preprocess_eda_data('train (8).csv')
+# Section 1: Exploratory Data Analysis (EDA)
+st.header("1. Exploratory Data Analysis (EDA) 🔍")
+train_eda = load_and_preprocess_eda_data()
 
-    # Display EDA data and plots (as in your original code)
-    st.subheader("📊 Dataset Overview")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.write("**First 5 rows:**")
-        st.dataframe(train_eda.head())
-    with col2:
-        st.write("**Basic Statistics:**")
-        st.dataframe(train_eda.describe())
+# Time Series Analysis
+st.subheader("Time Series Analysis 📊")
+fig1 = plt.figure(figsize=(15, 7))
+sns.lineplot(data=train_eda, x='date', y='orders', hue='warehouse', marker='o')
+plt.title('Daily Orders Over Time by Warehouse 📈', fontsize=16)
+plt.xlabel('Date', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.grid(True)
+plt.tight_layout()
+st.pyplot(fig1)
 
-    st.subheader("🔍 Missing Values Analysis")
-    missing_data = train_eda.isnull().sum().to_frame(name="Missing Values")
-    missing_data["Percentage"] = (missing_data["Missing Values"] / len(train_eda)) * 100
-    st.dataframe(missing_data.sort_values(by="Percentage", ascending=False))
-
-    st.subheader("📄 Column Information")
-    col_info = pd.DataFrame({
-        'Column': train_eda.columns,
-        'Data Type': train_eda.dtypes,
-        'Unique Values': [train_eda[col].nunique() for col in train_eda.columns]
-    })
-    st.dataframe(col_info)
-
-    # Time Series Analysis
-    st.subheader("Time Series Analysis 📊")
-    fig1 = plt.figure(figsize=(15, 7))
-    sns.lineplot(data=train_eda, x='date', y='orders', hue='warehouse', marker='o')
-    plt.title('Daily Orders Over Time by Warehouse 📈', fontsize=16)
-    plt.xlabel('Date', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.grid(True)
+# Distribution Analysis
+st.subheader("Distribution Analysis 📈")
+col1, col2 = st.columns(2)
+with col1:
+    fig2 = plt.figure(figsize=(10, 6))
+    sns.histplot(train_eda['orders'], kde=True, bins=30, color='skyblue')
+    plt.title('Distribution of Orders 📊', fontsize=16)
+    plt.xlabel('Number of Orders', fontsize=12)
+    plt.ylabel('Frequency', fontsize=12)
+    plt.grid(axis='y')
     plt.tight_layout()
-    st.pyplot(fig1)
-
-    # Distribution Analysis
-    st.subheader("Distribution Analysis 📈")
-    col1, col2 = st.columns(2)
-    with col1:
-        fig2 = plt.figure(figsize=(10, 6))
-        sns.histplot(train_eda['orders'], kde=True, bins=30, color='skyblue')
-        plt.title('Distribution of Orders 📊', fontsize=16)
-        plt.xlabel('Number of Orders', fontsize=12)
-        plt.ylabel('Frequency', fontsize=12)
-        plt.grid(axis='y')
-        plt.tight_layout()
-        st.pyplot(fig2)
-    with col2:
-        fig3 = plt.figure(figsize=(10, 6))
-        sns.boxplot(data=train_eda, x='warehouse', y='orders', palette='viridis')
-        plt.title('Orders Distribution by Warehouse 🏠', fontsize=16)
-        plt.xlabel('Warehouse', fontsize=12)
-        plt.ylabel('Number of Orders', fontsize=12)
-        plt.xticks(rotation=45, ha='right')
-        plt.tight_layout()
-        st.pyplot(fig3)
-
-    # Temporal Patterns
-    st.subheader("Temporal Patterns 🗓️")
-    col1, col2 = st.columns(2)
-    with col1:
-        fig4 = plt.figure(figsize=(12, 7))
-        sns.boxplot(data=train_eda, x='day_of_week', y='orders', palette='pastel')
-        plt.title('Orders Distribution by Day of Week 🗓️', fontsize=16)
-        plt.xlabel('Day of Week', fontsize=12)
-        plt.ylabel('Number of Orders', fontsize=12)
-        plt.xticks(rotation=45, ha='right')
-        plt.grid(axis='y')
-        plt.tight_layout()
-        st.pyplot(fig4)
-    with col2:
-        fig5 = plt.figure(figsize=(12, 7))
-        sns.lineplot(data=train_eda.groupby(['month', 'warehouse'])['orders'].mean().reset_index(),
-                     x='month', y='orders', hue='warehouse', marker='o', palette='tab10')
-        plt.title('Average Monthly Orders by Warehouse 🗓️', fontsize=16)
-        plt.xlabel('Month', fontsize=12)
-        plt.ylabel('Average Number of Orders', fontsize=12)
-        plt.xticks(range(1, 13), ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
-        plt.grid(True)
-        plt.tight_layout()
-        st.pyplot(fig5)
-
-    # Geographical Analysis
-    st.subheader("Geographical Analysis 🌍")
-    fig6 = plt.figure(figsize=(10, 6))
-    avg_orders = train_eda.groupby('country')['orders'].mean().sort_values(ascending=False)
-    sns.barplot(x=avg_orders.index, y=avg_orders.values, palette='magma')
-    plt.title('Average Daily Orders by Country 🌍', fontsize=16)
-    plt.xlabel('Country', fontsize=12)
-    plt.ylabel('Average Number of Orders', fontsize=12)
-    plt.xticks(rotation=45, ha='right')
-    plt.tight_layout()
-    st.pyplot(fig6)
-
-    # Orders: Holiday vs. Non-Holiday
-    st.subheader("Holiday vs. Non-Holiday Orders 🎁")
-    fig_holiday = plt.figure(figsize=(8, 6))
-    sns.boxplot(data=train_eda, x='holiday', y='orders', palette='viridis')
-    plt.title('Orders: Holiday vs. Non-Holiday 🎁', fontsize=16)
-    plt.xlabel('Is Holiday? (0: No, 1: Yes)', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.xticks([0, 1], ['Non-Holiday', 'Holiday'])
-    plt.tight_layout()
-    st.pyplot(fig_holiday)
-
-    # Orders: Shutdown vs. Non-Shutdown
-    st.subheader("Shutdown vs. Non-Shutdown Orders 🛑")
-    fig_shutdown = plt.figure(figsize=(8, 6))
-    sns.boxplot(data=train_eda, x='shutdown', y='orders', palette='mako')
-    plt.title('Orders: Shutdown vs. Non-Shutdown 🛑', fontsize=16)
-    plt.xlabel('Is Shutdown? (0: No, 1: Yes)', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.xticks([0, 1], ['Non-Shutdown', 'Shutdown'])
-    plt.tight_layout()
-    st.pyplot(fig_shutdown)
-
-    # Correlation Matrix of Numerical Features
-    st.subheader("Correlation Matrix of Numerical Features 🔗")
-    numerical_cols = ['orders', 'precipitation', 'snow', 'user_activity_1', 'user_activity_2', 'mov_change']
-    corr_matrix = train_eda[numerical_cols].corr()
-    fig_corr = plt.figure(figsize=(10, 8))
-    sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt=".2f", linewidths=.5)
-    plt.title('Correlation Matrix of Numerical Features 🔗', fontsize=16)
-    plt.tight_layout()
-    st.pyplot(fig_corr)
-
-    # Orders vs. User Activity 1
-    st.subheader("Orders vs. User Activity 1 📈")
-    fig_ua1 = plt.figure(figsize=(10, 6))
-    sns.scatterplot(data=train_eda, x='user_activity_1', y='orders', hue='warehouse', alpha=0.6, palette='tab10')
-    plt.title('Orders vs. User Activity 1 📈', fontsize=16)
-    plt.xlabel('User Activity 1', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.grid(True)
-    plt.tight_layout()
-    st.pyplot(fig_ua1)
-
-    # Orders vs. User Activity 2
-    st.subheader("Orders vs. User Activity 2 📈")
-    fig_ua2 = plt.figure(figsize=(10, 6))
-    sns.scatterplot(data=train_eda, x='user_activity_2', y='orders', hue='warehouse', alpha=0.6, palette='tab10')
-    plt.title('Orders vs. User Activity 2 📈', fontsize=16)
-    plt.xlabel('User Activity 2', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.grid(True)
-    plt.tight_layout()
-    st.pyplot(fig_ua2)
-
-    # Total Orders by Warehouse
-    st.subheader("Total Orders by Warehouse 📦")
-    fig_total_orders_warehouse = plt.figure(figsize=(10, 6))
-    sns.barplot(data=train_eda, x='warehouse', y='orders', estimator=sum, palette='viridis')
-    plt.title('Total Orders by Warehouse 📦', fontsize=16)
+    st.pyplot(fig2)
+with col2:
+    fig3 = plt.figure(figsize=(10, 6))
+    sns.boxplot(data=train_eda, x='warehouse', y='orders', palette='viridis')
+    plt.title('Orders Distribution by Warehouse 🏠', fontsize=16)
     plt.xlabel('Warehouse', fontsize=12)
-    plt.ylabel('Total Number of Orders', fontsize=12)
+    plt.ylabel('Number of Orders', fontsize=12)
     plt.xticks(rotation=45, ha='right')
     plt.tight_layout()
-    st.pyplot(fig_total_orders_warehouse)
+    st.pyplot(fig3)
 
-    # Orders: School Holidays vs. Non-School Holidays
-    st.subheader("Orders: School Holidays vs. Non-School Holidays 🏫")
-    fig_school_holidays = plt.figure(figsize=(8, 6))
-    sns.boxplot(data=train_eda, x='school_holidays', y='orders', palette='cividis')
-    plt.title('Orders: School Holidays vs. Non-School Holidays 🏫', fontsize=16)
-    plt.xlabel('Is School Holiday? (0: No, 1: Yes)', fontsize=12)
+# Temporal Patterns
+st.subheader("Temporal Patterns 🗓️")
+col1, col2 = st.columns(2)
+with col1:
+    fig4 = plt.figure(figsize=(12, 7))
+    sns.boxplot(data=train_eda, x='day_of_week', y='orders', palette='pastel')
+    plt.title('Orders Distribution by Day of Week 🗓️', fontsize=16)
+    plt.xlabel('Day of Week', fontsize=12)
     plt.ylabel('Number of Orders', fontsize=12)
-    plt.xticks([0, 1], ['Non-School Holiday', 'School Holiday'])
-    plt.tight_layout()
-    st.pyplot(fig_school_holidays)
-
-    # Orders: Blackout vs. Non-Blackout
-    st.subheader("Orders: Blackout vs. Non-Blackout 🌑")
-    fig_blackout = plt.figure(figsize=(8, 6))
-    sns.boxplot(data=train_eda, x='blackout', y='orders', palette='magma')
-    plt.title('Orders: Blackout vs. Non-Blackout 🌑', fontsize=16)
-    plt.xlabel('Is Blackout? (0: No, 1: Yes)', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.xticks([0, 1], ['Non-Blackout', 'Blackout'])
-    plt.tight_layout()
-    st.pyplot(fig_blackout)
-
-    # Orders vs. User Activity 1 (with Regression Line)
-    st.subheader("Orders vs. User Activity 1 (with Regression Line) 🚀")
-    fig_reg_ua1 = plt.figure(figsize=(10, 6))
-    sns.regplot(data=train_eda, x='user_activity_1', y='orders', scatter_kws={'alpha':0.6}, line_kws={'color':'red'})
-    plt.title('Orders vs. User Activity 1 (with Regression Line) 🚀', fontsize=16)
-    plt.xlabel('User Activity 1', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.grid(True)
-    plt.tight_layout()
-    st.pyplot(fig_reg_ua1)
-
-    # Orders vs. User Activity 2 (with Regression Line)
-    st.subheader("Orders vs. User Activity 2 (with Regression Line) 🚀")
-    fig_reg_ua2 = plt.figure(figsize=(10, 6))
-    sns.regplot(data=train_eda, x='user_activity_2', y='orders', scatter_kws={'alpha':0.6}, line_kws={'color':'red'})
-    plt.title('Orders vs. User Activity 2 (with Regression Line) 🚀', fontsize=16)
-    plt.xlabel('User Activity 2', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.grid(True)
-    plt.tight_layout()
-    st.pyplot(fig_reg_ua2)
-
-    # Distribution of Precipitation
-    st.subheader("Distribution of Precipitation 🌧️")
-    fig_precipitation = plt.figure(figsize=(10, 6))
-    sns.histplot(train_eda['precipitation'], kde=True, bins=20, color='teal')
-    plt.title('Distribution of Precipitation 🌧️', fontsize=16)
-    plt.xlabel('Precipitation (mm)', fontsize=12)
-    plt.ylabel('Frequency', fontsize=12)
+    plt.xticks(rotation=45, ha='right')
     plt.grid(axis='y')
     plt.tight_layout()
-    st.pyplot(fig_precipitation)
-
-    # Distribution of Snow
-    st.subheader("Distribution of Snow ❄️")
-    fig_snow = plt.figure(figsize=(10, 6))
-    sns.histplot(train_eda['snow'], kde=True, bins=20, color='lightsteelblue')
-    plt.title('Distribution of Snow ❄️', fontsize=16)
-    plt.xlabel('Snow (mm)', fontsize=12)
-    plt.ylabel('Frequency', fontsize=12)
-    plt.grid(axis='y')
-    plt.tight_layout()
-    st.pyplot(fig_snow)
-
-    # Orders vs. Precipitation (with Regression Line)
-    st.subheader("Orders vs. Precipitation (with Regression Line) ☔")
-    fig_reg_precipitation = plt.figure(figsize=(10, 6))
-    sns.regplot(data=train_eda, x='precipitation', y='orders', scatter_kws={'alpha':0.6}, line_kws={'color':'darkgreen'})
-    plt.title('Orders vs. Precipitation (with Regression Line) ☔', fontsize=16)
-    plt.xlabel('Precipitation (mm)', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
+    st.pyplot(fig4)
+with col2:
+    fig5 = plt.figure(figsize=(12, 7))
+    sns.lineplot(data=train_eda.groupby(['month', 'warehouse'])['orders'].mean().reset_index(),
+                 x='month', y='orders', hue='warehouse', marker='o', palette='tab10')
+    plt.title('Average Monthly Orders by Warehouse 🗓️', fontsize=16)
+    plt.xlabel('Month', fontsize=12)
+    plt.ylabel('Average Number of Orders', fontsize=12)
+    plt.xticks(range(1, 13), ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
     plt.grid(True)
     plt.tight_layout()
-    st.pyplot(fig_reg_precipitation)
+    st.pyplot(fig5)
 
-    # Orders vs. Snow (with Regression Line)
-    st.subheader("Orders vs. Snow (with Regression Line) 🌨️")
-    fig_reg_snow = plt.figure(figsize=(10, 6))
-    sns.regplot(data=train_eda, x='snow', y='orders', scatter_kws={'alpha':0.6}, line_kws={'color':'purple'})
-    plt.title('Orders vs. Snow (with Regression Line) 🌨️', fontsize=16)
-    plt.xlabel('Snow (mm)', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.grid(True)
-    plt.tight_layout()
-    st.pyplot(fig_reg_snow)
+# Geographical Analysis
+st.subheader("Geographical Analysis 🌍")
+fig6 = plt.figure(figsize=(10, 6))
+avg_orders = train_eda.groupby('country')['orders'].mean().sort_values(ascending=False)
+sns.barplot(x=avg_orders.index, y=avg_orders.values, palette='magma')
+plt.title('Average Daily Orders by Country 🌍', fontsize=16)
+plt.xlabel('Country', fontsize=12)
+plt.ylabel('Average Number of Orders', fontsize=12)
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
+st.pyplot(fig6)
 
-    # Orders: Mini Shutdown vs. Non-Mini Shutdown
-    st.subheader("Orders: Mini Shutdown vs. Non-Mini Shutdown ⚙️")
-    fig_mini_shutdown = plt.figure(figsize=(8, 6))
-    sns.boxplot(data=train_eda, x='mini_shutdown', y='orders', palette='rocket')
-    plt.title('Orders: Mini Shutdown vs. Non-Mini Shutdown ⚙️', fontsize=16)
-    plt.xlabel('Is Mini Shutdown? (0: No, 1: Yes)', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.xticks([0, 1], ['Non-Mini Shutdown', 'Mini Shutdown'])
-    plt.tight_layout()
-    st.pyplot(fig_mini_shutdown)
+# Orders: Holiday vs. Non-Holiday
+st.subheader("Holiday vs. Non-Holiday Orders 🎁")
+fig_holiday = plt.figure(figsize=(8, 6))
+sns.boxplot(data=train_eda, x='holiday', y='orders', palette='viridis')
+plt.title('Orders: Holiday vs. Non-Holiday 🎁', fontsize=16)
+plt.xlabel('Is Holiday? (0: No, 1: Yes)', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.xticks([0, 1], ['Non-Holiday', 'Holiday'])
+plt.tight_layout()
+st.pyplot(fig_holiday)
 
-    # Orders: Shops Closed vs. Non-Shops Closed
-    st.subheader("Orders: Shops Closed vs. Non-Shops Closed 🏬")
-    fig_shops_closed = plt.figure(figsize=(8, 6))
-    sns.boxplot(data=train_eda, x='shops_closed', y='orders', palette='cool')
-    plt.title('Orders: Shops Closed vs. Non-Shops Closed 🏬', fontsize=16)
-    plt.xlabel('Are Shops Closed? (0: No, 1: Yes)', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.xticks([0, 1], ['Shops Open', 'Shops Closed'])
-    plt.tight_layout()
-    st.pyplot(fig_shops_closed)
+# Orders: Shutdown vs. Non-Shutdown
+st.subheader("Shutdown vs. Non-Shutdown Orders 🛑")
+fig_shutdown = plt.figure(figsize=(8, 6))
+sns.boxplot(data=train_eda, x='shutdown', y='orders', palette='mako')
+plt.title('Orders: Shutdown vs. Non-Shutdown 🛑', fontsize=16)
+plt.xlabel('Is Shutdown? (0: No, 1: Yes)', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.xticks([0, 1], ['Non-Shutdown', 'Shutdown'])
+plt.tight_layout()
+st.pyplot(fig_shutdown)
 
-    # Orders: Winter School Holidays vs. Non-Winter School Holidays
-    st.subheader("Orders: Winter School Holidays vs. Non-Winter School Holidays ☃️")
-    fig_winter_school_holidays = plt.figure(figsize=(8, 6))
-    sns.boxplot(data=train_eda, x='winter_school_holidays', y='orders', palette='cubehelix')
-    plt.title('Orders: Winter School Holidays vs. Non-Winter School Holidays ☃️', fontsize=16)
-    plt.xlabel('Is Winter School Holiday? (0: No, 1: Yes)', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.xticks([0, 1], ['Normal Days', 'Winter School Holiday'])
-    plt.tight_layout()
-    st.pyplot(fig_winter_school_holidays)
+# Correlation Matrix of Numerical Features
+st.subheader("Correlation Matrix of Numerical Features 🔗")
+numerical_cols = ['orders', 'precipitation', 'snow', 'user_activity_1', 'user_activity_2', 'mov_change']
+corr_matrix = train_eda[numerical_cols].corr()
+fig_corr = plt.figure(figsize=(10, 8))
+sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt=".2f", linewidths=.5)
+plt.title('Correlation Matrix of Numerical Features 🔗', fontsize=16)
+plt.tight_layout()
+st.pyplot(fig_corr)
 
-    # Orders: Frankfurt Shutdown vs. Non-Frankfurt Shutdown
-    st.subheader("Orders: Frankfurt Shutdown vs. Non-Frankfurt Shutdown 🇩🇪")
-    fig_frankfurt_shutdown = plt.figure(figsize=(8, 6))
-    sns.boxplot(data=train_eda, x='frankfurt_shutdown', y='orders', palette='crest')
-    plt.title('Orders: Frankfurt Shutdown vs. Non-Frankfurt Shutdown 🇩🇪', fontsize=16)
-    plt.xlabel('Is Frankfurt Shutdown? (0: No, 1: Yes)', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.xticks([0, 1], ['Not Shutdown', 'Shutdown'])
-    plt.tight_layout()
-    st.pyplot(fig_frankfurt_shutdown)
+# Orders vs. User Activity 1
+st.subheader("Orders vs. User Activity 1 📈")
+fig_ua1 = plt.figure(figsize=(10, 6))
+sns.scatterplot(data=train_eda, x='user_activity_1', y='orders', hue='warehouse', alpha=0.6, palette='tab10')
+plt.title('Orders vs. User Activity 1 📈', fontsize=16)
+plt.xlabel('User Activity 1', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.grid(True)
+plt.tight_layout()
+st.pyplot(fig_ua1)
 
-    # Orders: MOV Change vs. No MOV Change
-    st.subheader("Orders: MOV Change vs. No MOV Change 💰")
-    fig_mov_change = plt.figure(figsize=(8, 6))
-    sns.boxplot(data=train_eda, x='mov_change', y='orders', palette='flare')
-    plt.title('Orders: MOV Change vs. No MOV Change 💰', fontsize=16)
-    plt.xlabel('Is MOV Change? (0: No, 1: Yes)', fontsize=12)
-    plt.ylabel('Number of Orders', fontsize=12)
-    plt.xticks([0, 1], ['No Change', 'Change'])
-    plt.tight_layout()
-    st.pyplot(fig_mov_change)
+# Orders vs. User Activity 2
+st.subheader("Orders vs. User Activity 2 📈")
+fig_ua2 = plt.figure(figsize=(10, 6))
+sns.scatterplot(data=train_eda, x='user_activity_2', y='orders', hue='warehouse', alpha=0.6, palette='tab10')
+plt.title('Orders vs. User Activity 2 📈', fontsize=16)
+plt.xlabel('User Activity 2', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.grid(True)
+plt.tight_layout()
+st.pyplot(fig_ua2)
 
-    # Orders per Day of Week by Warehouse
-    st.subheader("Orders per Day of Week by Warehouse 🗓️🏠")
-    g = sns.catplot(data=train_eda, x='day_of_week', y='orders', col='warehouse',
-                    kind='box', col_wrap=2, height=5, aspect=1.2, palette='Set3', sharey=True)
-    g.set_axis_labels("Day of Week", "Number of Orders")
-    g.set_titles("Warehouse: {col_name}")
-    g.set_xticklabels(rotation=45, ha='right')
-    g.fig.suptitle('Orders Distribution by Day of Week for Each Warehouse 🗓️🏠', y=1.02, fontsize=16)
-    plt.tight_layout()
-    st.pyplot(g)
+# Total Orders by Warehouse
+st.subheader("Total Orders by Warehouse 📦")
+fig_total_orders_warehouse = plt.figure(figsize=(10, 6))
+sns.barplot(data=train_eda, x='warehouse', y='orders', estimator=sum, palette='viridis')
+plt.title('Total Orders by Warehouse 📦', fontsize=16)
+plt.xlabel('Warehouse', fontsize=12)
+plt.ylabel('Total Number of Orders', fontsize=12)
+plt.xticks(rotation=45, ha='right')
+plt.tight_layout()
+st.pyplot(fig_total_orders_warehouse)
 
-    # Section 2: Model Predictions
-    st.header("2. Model Predictions on Test Data 🔮")
-    st.write("Using a pre-trained XGBoost model to generate predictions on unseen test data.")
-    model = load_model_from_url()
+# Orders: School Holidays vs. Non-School Holidays
+st.subheader("Orders: School Holidays vs. Non-School Holidays 🏫")
+fig_school_holidays = plt.figure(figsize=(8, 6))
+sns.boxplot(data=train_eda, x='school_holidays', y='orders', palette='cividis')
+plt.title('Orders: School Holidays vs. Non-School Holidays 🏫', fontsize=16)
+plt.xlabel('Is School Holiday? (0: No, 1: Yes)', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.xticks([0, 1], ['Non-School Holiday', 'School Holiday'])
+plt.tight_layout()
+st.pyplot(fig_school_holidays)
 
-    if model is not None:
-        with st.spinner('Preparing test data for predictions...'):
-            test_data, original_test_df = load_and_preprocess_model_data('train (8).csv', 'test (2).csv', expected_features=TRAIN_FEATURES)
+# Orders: Blackout vs. Non-Blackout
+st.subheader("Orders: Blackout vs. Non-Blackout 🌑")
+fig_blackout = plt.figure(figsize=(8, 6))
+sns.boxplot(data=train_eda, x='blackout', y='orders', palette='magma')
+plt.title('Orders: Blackout vs. Non-Blackout 🌑', fontsize=16)
+plt.xlabel('Is Blackout? (0: No, 1: Yes)', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.xticks([0, 1], ['Non-Blackout', 'Blackout'])
+plt.tight_layout()
+st.pyplot(fig_blackout)
 
-        if test_data is not None:
-            st.subheader("Feature Alignment Check")
-            st.write(f"Number of features in test data: {len(test_data.columns)}")
-            st.write(f"Number of expected features: {len(TRAIN_FEATURES)}")
+# Orders vs. User Activity 1 (with Regression Line)
+st.subheader("Orders vs. User Activity 1 (with Regression Line) 🚀")
+fig_reg_ua1 = plt.figure(figsize=(10, 6))
+sns.regplot(data=train_eda, x='user_activity_1', y='orders', scatter_kws={'alpha':0.6}, line_kws={'color':'red'})
+plt.title('Orders vs. User Activity 1 (with Regression Line) 🚀', fontsize=16)
+plt.xlabel('User Activity 1', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.grid(True)
+plt.tight_layout()
+st.pyplot(fig_reg_ua1)
 
-            if set(test_data.columns) == set(TRAIN_FEATURES):
-                st.success("All expected features are present!")
-            else:
-                st.error("Feature mismatch detected! Predictions might be unreliable.")
+# Orders vs. User Activity 2 (with Regression Line)
+st.subheader("Orders vs. User Activity 2 (with Regression Line) 🚀")
+fig_reg_ua2 = plt.figure(figsize=(10, 6))
+sns.regplot(data=train_eda, x='user_activity_2', y='orders', scatter_kws={'alpha':0.6}, line_kws={'color':'red'})
+plt.title('Orders vs. User Activity 2 (with Regression Line) 🚀', fontsize=16)
+plt.xlabel('User Activity 2', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.grid(True)
+plt.tight_layout()
+st.pyplot(fig_reg_ua2)
 
-            try:
-                if isinstance(model, xgb.Booster):
-                    dmatrix = xgb.DMatrix(test_data)
-                    predictions = model.predict(dmatrix)
-                else:
-                    predictions = model.predict(test_data)
+# Distribution of Precipitation
+st.subheader("Distribution of Precipitation 🌧️")
+fig_precipitation = plt.figure(figsize=(10, 6))
+sns.histplot(train_eda['precipitation'], kde=True, bins=20, color='teal')
+plt.title('Distribution of Precipitation 🌧️', fontsize=16)
+plt.xlabel('Precipitation (mm)', fontsize=12)
+plt.ylabel('Frequency', fontsize=12)
+plt.grid(axis='y')
+plt.tight_layout()
+st.pyplot(fig_precipitation)
 
-                st.subheader("📊 Prediction Results")
-                st.write(f"Generated predictions for {len(predictions)} test samples.")
-                st.dataframe(pd.Series(predictions).describe().to_frame('Predictions'))
+# Distribution of Snow
+st.subheader("Distribution of Snow ❄️")
+fig_snow = plt.figure(figsize=(10, 6))
+sns.histplot(train_eda['snow'], kde=True, bins=20, color='lightsteelblue')
+plt.title('Distribution of Snow ❄️', fontsize=16)
+plt.xlabel('Snow (mm)', fontsize=12)
+plt.ylabel('Frequency', fontsize=12)
+plt.grid(axis='y')
+plt.tight_layout()
+st.pyplot(fig_snow)
 
-                col1, col2 = st.columns(2)
-                with col1:
-                    fig7 = plt.figure(figsize=(10, 6))
-                    sns.histplot(predictions, kde=True, bins=30, color='purple')
-                    plt.title('Distribution of Predicted Orders')
-                    st.pyplot(fig7)
-                with col2:
-                    fig8 = plt.figure(figsize=(10, 6))
-                    plt.plot(predictions, 'o', alpha=0.5)
-                    plt.title('Predicted Orders Sequence')
-                    st.pyplot(fig8)
+# Orders vs. Precipitation (with Regression Line)
+st.subheader("Orders vs. Precipitation (with Regression Line) ☔")
+fig_reg_precipitation = plt.figure(figsize=(10, 6))
+sns.regplot(data=train_eda, x='precipitation', y='orders', scatter_kws={'alpha':0.6}, line_kws={'color':'darkgreen'})
+plt.title('Orders vs. Precipitation (with Regression Line) ☔', fontsize=16)
+plt.xlabel('Precipitation (mm)', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.grid(True)
+plt.tight_layout()
+st.pyplot(fig_reg_precipitation)
 
-                st.subheader("✨ Feature Importance")
-                if hasattr(model, 'feature_importances_'):
-                    fig9 = plt.figure(figsize=(12, 8))
-                    xgb.plot_importance(model, max_num_features=15)
-                    plt.title('Top 15 Important Features')
-                    st.pyplot(fig9)
-                elif hasattr(model, 'get_booster'):
-                    fig9 = plt.figure(figsize=(12, 8))
-                    xgb.plot_importance(model.get_booster(), max_num_features=15)
-                    plt.title('Top 15 Important Features')
-                    st.pyplot(fig9)
-                else:
-                    st.warning("Feature importance not available for this model type")
+# Orders vs. Snow (with Regression Line)
+st.subheader("Orders vs. Snow (with Regression Line) 🌨️")
+fig_reg_snow = plt.figure(figsize=(10, 6))
+sns.regplot(data=train_eda, x='snow', y='orders', scatter_kws={'alpha':0.6}, line_kws={'color':'purple'})
+plt.title('Orders vs. Snow (with Regression Line) 🌨️', fontsize=16)
+plt.xlabel('Snow (mm)', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.grid(True)
+plt.tight_layout()
+st.pyplot(fig_reg_snow)
 
-                st.subheader("📁 Download Predictions")
-                predictions_df = pd.DataFrame({'id': original_test_df.index, 'predicted_orders': predictions})
-                csv = predictions_df.to_csv(index=False).encode('utf-8')
-                st.download_button(
-                    label="Download predictions as CSV",
-                    data=csv,
-                    file_name='rohlik_order_predictions.csv',
-                    mime='text/csv'
-                )
+# Orders: Mini Shutdown vs. Non-Mini Shutdown
+st.subheader("Orders: Mini Shutdown vs. Non-Mini Shutdown ⚙️")
+fig_mini_shutdown = plt.figure(figsize=(8, 6))
+sns.boxplot(data=train_eda, x='mini_shutdown', y='orders', palette='rocket')
+plt.title('Orders: Mini Shutdown vs. Non-Mini Shutdown ⚙️', fontsize=16)
+plt.xlabel('Is Mini Shutdown? (0: No, 1: Yes)', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.xticks([0, 1], ['Non-Mini Shutdown', 'Mini Shutdown'])
+plt.tight_layout()
+st.pyplot(fig_mini_shutdown)
 
-            except Exception as e:
-                st.error(f"Prediction error: {str(e)}")
+# Orders: Shops Closed vs. Non-Shops Closed
+st.subheader("Orders: Shops Closed vs. Non-Shops Closed 🏬")
+fig_shops_closed = plt.figure(figsize=(8, 6))
+sns.boxplot(data=train_eda, x='shops_closed', y='orders', palette='cool')
+plt.title('Orders: Shops Closed vs. Non-Shops Closed 🏬', fontsize=16)
+plt.xlabel('Are Shops Closed? (0: No, 1: Yes)', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.xticks([0, 1], ['Shops Open', 'Shops Closed'])
+plt.tight_layout()
+st.pyplot(fig_shops_closed)
+
+# Orders: Winter School Holidays vs. Non-Winter School Holidays
+st.subheader("Orders: Winter School Holidays vs. Non-Winter School Holidays ☃️")
+fig_winter_school_holidays = plt.figure(figsize=(8, 6))
+sns.boxplot(data=train_eda, x='winter_school_holidays', y='orders', palette='cubehelix')
+plt.title('Orders: Winter School Holidays vs. Non-Winter School Holidays ☃️', fontsize=16)
+plt.xlabel('Is Winter School Holiday? (0: No, 1: Yes)', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.xticks([0, 1], ['Normal Days', 'Winter School Holiday'])
+plt.tight_layout()
+st.pyplot(fig_winter_school_holidays)
+
+# Orders: Frankfurt Shutdown vs. Non-Frankfurt Shutdown
+st.subheader("Orders: Frankfurt Shutdown vs. Non-Frankfurt Shutdown 🇩🇪")
+fig_frankfurt_shutdown = plt.figure(figsize=(8, 6))
+sns.boxplot(data=train_eda, x='frankfurt_shutdown', y='orders', palette='crest')
+plt.title('Orders: Frankfurt Shutdown vs. Non-Frankfurt Shutdown 🇩🇪', fontsize=16)
+plt.xlabel('Is Frankfurt Shutdown? (0: No, 1: Yes)', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.xticks([0, 1], ['Not Shutdown', 'Shutdown'])
+plt.tight_layout()
+st.pyplot(fig_frankfurt_shutdown)
+
+# Orders: MOV Change vs. No MOV Change
+st.subheader("Orders: MOV Change vs. No MOV Change 💰")
+fig_mov_change = plt.figure(figsize=(8, 6))
+sns.boxplot(data=train_eda, x='mov_change', y='orders', palette='flare')
+plt.title('Orders: MOV Change vs. No MOV Change 💰', fontsize=16)
+plt.xlabel('Is MOV Change? (0: No, 1: Yes)', fontsize=12)
+plt.ylabel('Number of Orders', fontsize=12)
+plt.xticks([0, 1], ['No Change', 'Change'])
+plt.tight_layout()
+st.pyplot(fig_mov_change)
+
+# Orders per Day of Week by Warehouse
+st.subheader("Orders per Day of Week by Warehouse 🗓️🏠")
+g = sns.catplot(data=train_eda, x='day_of_week', y='orders', col='warehouse',
+                kind='box', col_wrap=2, height=5, aspect=1.2, palette='Set3', sharey=True)
+g.set_axis_labels("Day of Week", "Number of Orders")
+g.set_titles("Warehouse: {col_name}")
+g.set_xticklabels(rotation=45, ha='right')
+g.fig.suptitle('Orders Distribution by Day of Week for Each Warehouse 🗓️🏠', y=1.02, fontsize=16)
+plt.tight_layout()
+st.pyplot(g)
+
+
+# Section 2: Model Predictions
+st.header("2. Model Predictions on Test Data 🔮")
+st.write("Using a pre-trained XGBoost model to generate predictions on unseen test data.")
+model = load_model()
+
+if model is not None:
+    with st.spinner('Preparing test data for predictions...'):
+        test_data, original_test_df = load_and_preprocess_model_data(TRAIN_DATA_PATH, TEST_DATA_PATH, expected_features=TRAIN_FEATURES)
+
+    if test_data is not None:
+        st.subheader("Feature Alignment Check")
+        st.write(f"Number of features in test data: {len(test_data.columns)}")
+        st.write(f"Number of expected features: {len(TRAIN_FEATURES)}")
+        
+        if set(test_data.columns) == set(TRAIN_FEATURES):
+            st.success("All expected features are present!")
         else:
-            st.error("Test data preprocessing failed. Cannot generate predictions.")
+            st.error("Feature mismatch detected!")
 
-    st.success("Analysis complete!")
+        try:
+            if isinstance(model, xgb.Booster):
+                dmatrix = xgb.DMatrix(test_data)
+                predictions = model.predict(dmatrix)
+            else:
+                predictions = model.predict(test_data)
 
-if __name__ == "__main__":
-    main()
+            st.subheader("📊 Prediction Results")
+            st.write(f"Generated predictions for {len(predictions)} test samples.")
+            st.dataframe(pd.Series(predictions).describe().to_frame('Predictions'))
+
+            col1, col2 = st.columns(2)
+            with col1:
+                fig7 = plt.figure(figsize=(10, 6))
+                sns.histplot(predictions, kde=True, bins=30, color='purple')
+                plt.title('Distribution of Predicted Orders')
+                st.pyplot(fig7)
+            with col2:
+                fig8 = plt.figure(figsize=(10, 6))
+                plt.plot(predictions, 'o', alpha=0.5)
+                plt.title('Predicted Orders Sequence')
+                st.pyplot(fig8)
+
+            st.subheader("✨ Feature Importance")
+            if hasattr(model, 'feature_importances_'):
+                fig9 = plt.figure(figsize=(12, 8))
+                plot_importance(model, max_num_features=15)
+                plt.title('Top 15 Important Features')
+                st.pyplot(fig9)
+            else:
+                st.warning("Feature importance not available for this model type")
+
+            st.subheader("📁 Download Predictions")
+            predictions_df = pd.DataFrame({'id': original_test_df.index, 'predicted_orders': predictions})
+            csv = predictions_df.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="Download predictions as CSV",
+                data=csv,
+                file_name='rohlik_order_predictions.csv',
+                mime='text/csv'
+            )
+
+        except Exception as e:
+            st.error(f"Prediction error: {str(e)}")
+    else:
+        st.error("Test data preprocessing failed")
+
+st.success("Analysis complete!")
