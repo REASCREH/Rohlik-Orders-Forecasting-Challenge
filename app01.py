@@ -1,11 +1,9 @@
 import pandas as pd
 import numpy as np
-#import xgboost as xgb # Keep this commented if you're importing xgboost methods directly
+import xgboost as xgb
 from sklearn.metrics import mean_absolute_percentage_error, mean_absolute_error, r2_score
 import matplotlib.pyplot as plt
 import seaborn as sns
-# from xgboost import plot_importance, plot_tree # Make sure to uncomment if you use them!
-import xgboost as xgb # Explicitly import xgboost for DMatrix and plot_importance if using them like this
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
 import streamlit as st
@@ -18,8 +16,8 @@ plt.style.use('ggplot')
 # IMPORTANT: Replace this with the actual raw URL to your trained model on GitHub
 # Example: If your model is in a GitHub repo at user/repo/blob/main/xgboost_model.joblib,
 # the raw URL would be https://raw.githubusercontent.com/user/repo/main/xgboost_model.joblib
-MODEL_URL = "https://raw.githubusercontent.com/your_username/your_repo/main/xgboost_model.joblib" # <--- IMPORTANT: Replace with your actual raw GitHub URL!
-LOCAL_MODEL_PATH = "xgboost_model.joblib" # Local filename
+MODEL_URL = "xgboost_model.joblib" # <--- IMPORTANT: Replace with your actual raw GitHub URL!
+LOCAL_MODEL_PATH = "xgboost_model.joblib"  # Local filename
 
 # Manually defined TRAIN_FEATURES based on training notebook output
 TRAIN_FEATURES = [
@@ -45,10 +43,9 @@ TRAIN_FEATURES = [
 ]
 
 @st.cache_data
-def load_and_preprocess_eda_data(train_df_path='train (8).csv'): # Add default path for convenience
+def load_and_preprocess_eda_data(train_df_path='train (8).csv'):
     train_eda = pd.read_csv(train_df_path, index_col='id')
-    
-    # ... (rest of your EDA preprocessing logic) ...
+
     train_eda['date'] = pd.to_datetime(train_eda['date'])
     city_to_country = {
         'Munich_1': 'Germany',
@@ -185,11 +182,11 @@ def load_and_preprocess_model_data(train_df_path, test_df_path, expected_feature
         aligned_test_data = aligned_test_data[expected_features]
         return aligned_test_data, test
     else:
-        # st.error should be called inside the main Streamlit function
+        # This block will not be reached in your current usage as expected_features is always provided
         return None, test
 
 @st.cache_resource
-def load_model_from_url(): # Renamed to avoid confusion with tensorflow.keras.models.load_model
+def load_model_from_url():
     if not os.path.exists(LOCAL_MODEL_PATH):
         st.info(f"Downloading model from {MODEL_URL}...")
         try:
@@ -202,7 +199,7 @@ def load_model_from_url(): # Renamed to avoid confusion with tensorflow.keras.mo
     try:
         model = joblib.load(LOCAL_MODEL_PATH)
         st.success("Model loaded successfully!")
-        
+
         if hasattr(model, 'feature_names_in_') and model.feature_names_in_ is not None:
             if set(model.feature_names_in_) != set(TRAIN_FEATURES):
                 st.warning("Model's internal feature names differ from TRAIN_FEATURES!")
@@ -225,7 +222,7 @@ def main():
 
     # Section 1: Exploratory Data Analysis (EDA)
     st.header("1. Exploratory Data Analysis (EDA) 🔍")
-    train_eda = load_and_preprocess_eda_data('train (8).csv') # Pass the path here
+    train_eda = load_and_preprocess_eda_data('train (8).csv')
 
     # Display EDA data and plots (as in your original code)
     st.subheader("📊 Dataset Overview")
@@ -542,7 +539,7 @@ def main():
     # Section 2: Model Predictions
     st.header("2. Model Predictions on Test Data 🔮")
     st.write("Using a pre-trained XGBoost model to generate predictions on unseen test data.")
-    model = load_model_from_url() # Call the renamed function
+    model = load_model_from_url()
 
     if model is not None:
         with st.spinner('Preparing test data for predictions...'):
@@ -552,20 +549,14 @@ def main():
             st.subheader("Feature Alignment Check")
             st.write(f"Number of features in test data: {len(test_data.columns)}")
             st.write(f"Number of expected features: {len(TRAIN_FEATURES)}")
-            
+
             if set(test_data.columns) == set(TRAIN_FEATURES):
                 st.success("All expected features are present!")
             else:
-                st.error("Feature mismatch detected!")
-                # If load_and_preprocess_model_data returns None for test_data, this message will be shown.
-                # However, it's better to show it here explicitly if 'expected_features' was missing.
-                if test_data is None:
-                     st.error("Error: Expected features list (TRAIN_FEATURES) was not provided to preprocessing.")
-
+                st.error("Feature mismatch detected! Predictions might be unreliable.")
 
             try:
-                # Ensure xgboost is imported as xgb if you're using xgb.Booster and xgb.DMatrix
-                if isinstance(model, xgb.Booster): # Make sure xgb is imported if you use this check
+                if isinstance(model, xgb.Booster):
                     dmatrix = xgb.DMatrix(test_data)
                     predictions = model.predict(dmatrix)
                 else:
@@ -590,10 +581,7 @@ def main():
                 st.subheader("✨ Feature Importance")
                 if hasattr(model, 'feature_importances_'):
                     fig9 = plt.figure(figsize=(12, 8))
-                    # Ensure plot_importance is imported from xgboost or use model.get_booster()
-                    # For a scikit-learn API model, it might just be model.feature_importances_
-                    # If it's an XGBoost model loaded with joblib, plot_importance will likely work.
-                    xgb.plot_importance(model, max_num_features=15) # Use xgb.plot_importance
+                    xgb.plot_importance(model, max_num_features=15)
                     plt.title('Top 15 Important Features')
                     st.pyplot(fig9)
                 elif hasattr(model, 'get_booster'):
@@ -617,10 +605,9 @@ def main():
             except Exception as e:
                 st.error(f"Prediction error: {str(e)}")
         else:
-            st.error("Test data preprocessing failed or no expected features were provided.")
+            st.error("Test data preprocessing failed. Cannot generate predictions.")
 
     st.success("Analysis complete!")
 
-# This ensures the main() function is called when the script is run by Streamlit
 if __name__ == "__main__":
     main()
