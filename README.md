@@ -157,10 +157,11 @@ Visualizations were used to confirm the model's accuracy and inspect its behavio
 
 ![main/r2_learning_curv](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/r2_learning_curve.png)
 
-##Output Visualizations of Predictions
+#Output Visualizations of Predictions
+
 ![orders_by_country%20PREDICTIONS.](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/orders_by_country%20PREDICTIONS.png)
 
-![orders_distribution_by_day_of_week.](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/orders_distribution_by_day_of_week.png)
+![residual_plot_test_set.](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/residual_plot_test_set.png)
 
 
 ##Model Deployment and Live Application 🚀
