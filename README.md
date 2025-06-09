@@ -96,6 +96,13 @@ holiday_name_tfidf_0 to holiday_name_tfidf_9: Numbers created from holiday_name 
 
 holiday_before, holiday_after: "Yes" (1) or "no" (0) if a holiday was yesterday or is tomorrow. This helps the model understand how orders change around holidays.
 
+##Key Insights from the Visualizations:
+
+![average_daily_orders_per_warehouse](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/average_daily_orders_per_warehouse.png)
+![average_monthly_orders_by_warehouse](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/average_monthly_orders_by_warehouse.png)
+![daily_orders_over_time_by_warehouse](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/daily_orders_over_time_by_warehouse.png)
+
+
 
 
 ## Model Training and Feature Engineering
@@ -113,7 +120,9 @@ Aggregated Features: total_holidays_month and total_shops_closed_week provide br
 Lag/Lead Features: holiday_before and holiday_after capture the anticipatory or residual effects of holidays, which are vital for time-series forecasting.
 Text Feature Engineering: TF-IDF and Truncated SVD applied to holiday_name to convert text into meaningful numerical features, capturing semantic patterns.
 Categorical Encoding: One-hot encoding was used for categorical features like warehouse, holiday, day_of_week, month_name, and country, making them suitable for the XGBoost algorithm.
-XGBoost Model Configuration:
+
+##XGBoost Model Configuration:
+
 Our XGBoost model was carefully configured to balance performance and generalization:
 
 Booster: DART (Dropout Approximately Rank-one Tensor) was chosen. DART uses dropout to prevent overfitting by randomly dropping trees during training.
@@ -123,7 +132,7 @@ Regularization (alpha, lambda): alpha=9 (L1), lambda=8 (L2): Strong regularizati
 Subsampling (subsample, colsample_bytree): subsample=0.7, colsample_bytree=0.7: 70% of data instances and features were randomly sampled for each tree. This increases model robustness by reducing variance.
 Enhanced Stopping Mechanism: A custom EnhancedStopper callback monitored MAPE and R² score. It included early stopping (if no improvement for 50 rounds) to efficiently prevent overfitting and save computational resources.
 
-Model Performance and Visualizations 📊
+##Model Performance and Visualizations 📊
 The XGBoost model demonstrated exceptional performance, both on the training and unseen test datasets.
 
 Final Metrics:
@@ -140,11 +149,19 @@ Key Observations:
 The model's MAPE is significantly better than typical benchmarks for order forecasting.
 The minimal difference between training and test performance (a gap of only ~1.3% in MAPE) signifies robust generalization and minimal overfitting.
 R² values consistently above 0.98 confirm the model effectively captures the underlying patterns driving order volumes.
-Diagnostic Plots:
+##Diagnostic Plots:
 Visualizations were used to confirm the model's accuracy and inspect its behavior:
+![error_distribution_test_set](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/error_distribution_test_set.png)
 
-Actual vs. Predicted Orders Plot:
-A tight clustering of points around the ideal 45-degree line visually confirms the high accuracy of the model, showing that predictions closely match actuals.
+![mape_learning_curve](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/mape_learning_curve.png)
+
+![main/r2_learning_curv](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/r2_learning_curve.png)
+
+##Output Visualizations of Predictions
+![orders_by_country%20PREDICTIONS.](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/orders_by_country%20PREDICTIONS.png)
+
+![orders_distribution_by_day_of_week.](https://github.com/REASCREH/Rohlik-Orders-Forecasting-Challenge/blob/main/orders_distribution_by_day_of_week.png)
+
 
 ##Model Deployment and Live Application 🚀
 
